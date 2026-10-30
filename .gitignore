@@ -6,4 +6,8 @@ crash.log
 terraform.tfvars
 *.tfvars
 Chaves de acesso AWS CLI.png
-anotações.txt
+anotações.txt**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+.env
