@@ -11,3 +11,7 @@ anotações.txt**/.terraform/
 *.tfstate.*
 *.tfvars
 .env
+
+# artefatos locais
+*.patch
+*.zip
