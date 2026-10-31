@@ -102,12 +102,104 @@ spec:
             apiVersion: 1
             datasources:
               - name: Prometheus
+                uid: Prometheus
                 type: prometheus
                 url: http://prometheus-stack-kube-prom-prometheus.monitoring:9090
                 isDefault: true
               - name: Loki
+                uid: Loki
                 type: loki
                 url: http://loki-stack.monitoring:3100
+        # ---------------------------------------------------------------------
+        # Alerting como código: regra, contact point e policy são recriados
+        # a cada restart do pod (Grafana sem PVC perdia o que foi feito na UI).
+        # Chaves sensíveis vêm do Secret grafana-alerting (fora do Git):
+        #   PAGERDUTY_INTEGRATION_KEY e DISCORD_WEBHOOK_URL
+        # ---------------------------------------------------------------------
+        envFromSecrets:
+          - name: grafana-alerting
+        alerting:
+          contactpoints.yaml:
+            apiVersion: 1
+            contactPoints:
+              - orgId: 1
+                name: togglemaster-critico
+                receivers:
+                  - uid: tm-pagerduty
+                    type: pagerduty
+                    disableResolveMessage: false
+                    settings:
+                      integrationKey: $PAGERDUTY_INTEGRATION_KEY
+                      severity: critical
+                  - uid: tm-discord
+                    type: discord
+                    disableResolveMessage: false
+                    settings:
+                      url: $DISCORD_WEBHOOK_URL
+                  - uid: tm-self-healer
+                    type: webhook
+                    disableResolveMessage: false
+                    settings:
+                      url: http://self-healer.monitoring.svc.cluster.local:8080/alert
+                      httpMethod: POST
+          policies.yaml:
+            apiVersion: 1
+            policies:
+              - orgId: 1
+                receiver: togglemaster-critico
+                group_by: ['grafana_folder', 'alertname', 'namespace', 'deployment']
+                group_wait: 10s
+                group_interval: 30s
+                repeat_interval: 4h
+          rules.yaml:
+            apiVersion: 1
+            groups:
+              - orgId: 1
+                name: tc4
+                folder: ToggleMaster
+                interval: 30s
+                rules:
+                  - uid: tm-deploy-sem-replicas
+                    title: ToggleMaster - Deployment sem réplicas disponíveis
+                    condition: C
+                    data:
+                      - refId: A
+                        relativeTimeRange:
+                          from: 300
+                          to: 0
+                        datasourceUid: Prometheus
+                        model:
+                          refId: A
+                          expr: min by (namespace, deployment) (kube_deployment_status_replicas_available{namespace="togglemaster"})
+                          instant: true
+                          intervalMs: 1000
+                          maxDataPoints: 43200
+                      - refId: B
+                        datasourceUid: __expr__
+                        model:
+                          refId: B
+                          type: reduce
+                          expression: A
+                          reducer: last
+                      - refId: C
+                        datasourceUid: __expr__
+                        model:
+                          refId: C
+                          type: threshold
+                          expression: B
+                          conditions:
+                            - evaluator:
+                                type: lt
+                                params: [1]
+                    noDataState: OK
+                    execErrState: Error
+                    for: 30s
+                    labels:
+                      severity: critical
+                      service: togglemaster
+                    annotations:
+                      summary: Deployment do ToggleMaster sem réplicas disponíveis
+                      description: kube_deployment_status_replicas_available abaixo de 1. Self-healer acionado via webhook.
         service:
           type: ClusterIP
         sidecar:
