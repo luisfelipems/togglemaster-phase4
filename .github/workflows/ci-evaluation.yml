@@ -1,6 +1,6 @@
 name: CI - Evaluation Service
 concurrency:
-  group: gitops-main
+  group: gitops-evaluation
   cancel-in-progress: false
 
 

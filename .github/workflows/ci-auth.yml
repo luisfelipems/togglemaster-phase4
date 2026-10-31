@@ -1,6 +1,6 @@
 name: CI - Auth Service
 concurrency:
-  group: gitops-main
+  group: gitops-auth
   cancel-in-progress: false
 
 

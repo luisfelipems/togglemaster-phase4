@@ -1,6 +1,6 @@
 name: CI - Flag Service
 concurrency:
-  group: gitops-main
+  group: gitops-flag
   cancel-in-progress: false
 
 

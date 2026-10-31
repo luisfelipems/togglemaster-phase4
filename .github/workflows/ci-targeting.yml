@@ -1,6 +1,6 @@
 name: CI - Targeting Service
 concurrency:
-  group: gitops-main
+  group: gitops-targeting
   cancel-in-progress: false
 
 

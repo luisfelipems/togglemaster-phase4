@@ -1,6 +1,6 @@
 name: CI - Analytics Service
 concurrency:
-  group: gitops-main
+  group: gitops-analytics
   cancel-in-progress: false
 
 
