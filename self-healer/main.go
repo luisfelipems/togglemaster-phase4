@@ -97,12 +97,25 @@ func handleAlert(w http.ResponseWriter, r *http.Request) {
 
 // rolloutRestart equivale a: kubectl rollout restart deployment/<name> -n <ns>
 // usando strategic merge patch na anotação restartedAt (força novo ReplicaSet).
+//
+// Se o deployment estiver com 0 réplicas (ex.: serviço derrubado), um restart
+// sozinho não sobe nenhum pod; nesse caso a réplica é restaurada para 1 no mesmo patch.
 func rolloutRestart(clientset kubernetes.Interface, ns, name string) error {
+	dep, err := clientset.AppsV1().Deployments(ns).Get(context.Background(), name, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+	replicas := ""
+	if dep.Spec.Replicas != nil && *dep.Spec.Replicas == 0 {
+		replicas = `"replicas":1,`
+		log.Printf("SELF-HEALING: %s/%s estava com 0 réplicas — restaurando para 1", ns, name)
+	}
 	patch := fmt.Sprintf(
-		`{"spec":{"template":{"metadata":{"annotations":{"kubectl.kubernetes.io/restartedAt":"%s"}}}}}`,
+		`{"spec":{%s"template":{"metadata":{"annotations":{"kubectl.kubernetes.io/restartedAt":"%s"}}}}}`,
+		replicas,
 		time.Now().UTC().Format(time.RFC3339),
 	)
-	_, err := clientset.AppsV1().Deployments(ns).Patch(
+	_, err = clientset.AppsV1().Deployments(ns).Patch(
 		context.Background(),
 		name,
 		types.StrategicMergePatchType,
