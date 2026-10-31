@@ -8,6 +8,13 @@ from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 from functools import wraps
 import logging
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.flask import FlaskInstrumentor
+from opentelemetry.instrumentation.requests import RequestsInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 # Configura o logging
 logging.basicConfig(level=logging.INFO)
@@ -17,6 +24,27 @@ log = logging.getLogger(__name__)
 load_dotenv()
 
 app = Flask(__name__)
+
+
+def configure_telemetry(default_service_name: str) -> None:
+    endpoint = os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+    if not endpoint:
+        endpoint = "http://otel-collector.monitoring:4318/v1/traces"
+    elif endpoint.endswith(":4318") or endpoint.endswith(":4318/"):
+        endpoint = endpoint.rstrip("/") + "/v1/traces"
+
+    provider = TracerProvider(
+        resource=Resource.create({
+            "service.name": os.getenv("OTEL_SERVICE_NAME", default_service_name)
+        })
+    )
+    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint, timeout=5)))
+    trace.set_tracer_provider(provider)
+
+
+configure_telemetry("targeting-service")
+FlaskInstrumentor().instrument_app(app)
+RequestsInstrumentor().instrument()
 
 # --- Configuração ---
 DATABASE_URL = os.getenv("DATABASE_URL")

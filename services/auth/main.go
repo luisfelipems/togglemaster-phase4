@@ -1,24 +1,28 @@
 package main
 
 import (
-    "database/sql"
-    "log"
-    "net/http"
-    "os"
+	"database/sql"
+	"log"
+	"net/http"
+	"os"
 
-    _ "github.com/jackc/pgx/v4/stdlib"
-    "github.com/joho/godotenv"
+	_ "github.com/jackc/pgx/v4/stdlib"
+	"github.com/joho/godotenv"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // App struct (para injeção de dependência)
 type App struct {
-	DB         *sql.DB
-	MasterKey  string
+	DB        *sql.DB
+	MasterKey string
 }
 
 func main() {
 	// Carrega o .env para desenvolvimento local. Em produção, isso não fará nada.
 	_ = godotenv.Load()
+
+	shutdownTelemetry := initTelemetry("auth-service")
+	defer shutdownTelemetry()
 
 	// --- Configuração ---
 	port := os.Getenv("PORT")
@@ -44,8 +48,8 @@ func main() {
 	defer db.Close()
 
 	app := &App{
-		DB:         db,
-		MasterKey:  masterKey,
+		DB:        db,
+		MasterKey: masterKey,
 	}
 
 	// --- Rotas da API ---
@@ -59,8 +63,10 @@ func main() {
 	// Eles são protegidos pelo middleware de autenticação
 	mux.Handle("/admin/keys", app.masterKeyAuthMiddleware(http.HandlerFunc(app.createKeyHandler)))
 
+	instrumentedHandler := otelhttp.NewHandler(mux, "auth-http-server")
+
 	log.Printf("Serviço de Autenticação (Go) rodando na porta %s", port)
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
+	if err := http.ListenAndServe(":"+port, instrumentedHandler); err != nil {
 		log.Fatal(err)
 	}
 }
