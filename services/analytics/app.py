@@ -83,7 +83,9 @@ def process_message(message):
             event_id = str(uuid.uuid4())
 
             # Constrói o item no formato do DynamoDB
+            # Chave da tabela: flagId (hash key) + timestamp (range key)
             item = {
+                'flagId': {'S': body['flag_name']},
                 'event_id': {'S': event_id},
                 'user_id': {'S': body['user_id']},
                 'flag_name': {'S': body['flag_name']},
