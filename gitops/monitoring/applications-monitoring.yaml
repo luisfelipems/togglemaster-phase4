@@ -1,0 +1,126 @@
+# =============================================================================
+# FASE 4 — Stack de observabilidade (Prometheus + Loki + Grafana) via ArgoCD
+# Aplicar com: kubectl apply -n argocd -f gitops/monitoring/applications-monitoring.yaml
+# Os charts vêm de repositórios Helm públicos — não precisa registrar repo no ArgoCD.
+# releaseName fixo => nomes de Service previsíveis:
+#   prometheus-stack-kube-prom-prometheus:9090 | loki-stack:3100 | grafana:80
+# OTel Collector e self-healer ficam em applications-monitoring-extras.yaml
+# (dependem do Secret da New Relic e da imagem do self-healer no ECR).
+# =============================================================================
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring-prometheus
+  namespace: argocd
+spec:
+  project: default
+  source:
+    chart: kube-prometheus-stack    # Prometheus + Alertmanager + kube-state-metrics + node-exporter
+    repoURL: https://prometheus-community.github.io/helm-charts
+    targetRevision: 92.16.1
+    helm:
+      releaseName: prometheus-stack
+      values: |
+        grafana:
+          enabled: false            # Grafana separado (app monitoring-grafana)
+        prometheus:
+          prometheusSpec:
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+            retention: 3d
+            resources:
+              requests:
+                cpu: 100m
+                memory: 512Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: false
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true        # CRDs do Prometheus Operator excedem o limite do apply client-side
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring-loki
+  namespace: argocd
+spec:
+  project: default
+  source:
+    chart: loki-stack               # Loki (logs centralizados) + Promtail (coleta dos pods)
+    repoURL: https://grafana.github.io/helm-charts
+    targetRevision: 2.10.3
+    helm:
+      releaseName: loki-stack
+      values: |
+        loki:
+          enabled: true
+          isDefault: false
+        promtail:
+          enabled: true
+        grafana:
+          enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: false
+    syncOptions:
+      - CreateNamespace=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring-grafana
+  namespace: argocd
+spec:
+  project: default
+  source:
+    chart: grafana
+    repoURL: https://grafana.github.io/helm-charts
+    targetRevision: 10.5.15
+    helm:
+      releaseName: grafana
+      values: |
+        # Admin vem de um Secret criado manualmente (nada de senha no Git):
+        #   kubectl -n monitoring create secret generic grafana-admin \
+        #     --from-literal=admin-user=admin --from-literal=admin-password='<SENHA_FORTE>'
+        admin:
+          existingSecret: grafana-admin
+          userKey: admin-user
+          passwordKey: admin-password
+        datasources:
+          datasources.yaml:
+            apiVersion: 1
+            datasources:
+              - name: Prometheus
+                type: prometheus
+                url: http://prometheus-stack-kube-prom-prometheus.monitoring:9090
+                isDefault: true
+              - name: Loki
+                type: loki
+                url: http://loki-stack.monitoring:3100
+        service:
+          type: ClusterIP
+        sidecar:
+          dashboards:
+            enabled: true
+            label: grafana_dashboard
+            searchNamespace: ALL
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: false
+    syncOptions:
+      - CreateNamespace=true

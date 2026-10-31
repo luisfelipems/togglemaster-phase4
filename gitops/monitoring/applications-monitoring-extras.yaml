@@ -1,0 +1,49 @@
+# =============================================================================
+# FASE 4 — OTel Collector + self-healer (aplicar DEPOIS da stack base)
+# Pré-requisitos:
+#   - otel-collector: Secret "nr-secret" (chave ingest-key) no namespace monitoring
+#   - self-healer:    imagem togglemaster/self-healer publicada no ECR
+# Aplicar com: kubectl apply -n argocd -f gitops/monitoring/applications-monitoring-extras.yaml
+# =============================================================================
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring-otel-collector
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/luisfelipems/togglemaster-phase4
+    targetRevision: main
+    path: gitops/monitoring/otel-collector
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring-self-healer
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/luisfelipems/togglemaster-phase4
+    targetRevision: main
+    path: gitops/monitoring/self-healer
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true

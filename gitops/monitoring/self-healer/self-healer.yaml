@@ -1,0 +1,92 @@
+---
+# =============================================================================
+# self-healer — recebe o webhook do Grafana (Alerting) e executa o
+# "rollout restart" do deployment indicado nas labels do alerta.
+# É o mecanismo de Self-Healing da Fase 4.
+# Labels esperadas no alerta: namespace=<ns> e deployment=<nome-do-deployment>
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: self-healer
+  namespace: monitoring
+---
+# RBAC: permissão mínima — apenas patch/get em deployments do namespace togglemaster
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: self-healer-rollout
+  namespace: togglemaster
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: self-healer-rollout-binding
+  namespace: togglemaster
+subjects:
+  - kind: ServiceAccount
+    name: self-healer
+    namespace: monitoring
+roleRef:
+  kind: Role
+  name: self-healer-rollout
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: self-healer
+  namespace: monitoring
+  labels:
+    app: self-healer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: self-healer
+  template:
+    metadata:
+      labels:
+        app: self-healer
+    spec:
+      serviceAccountName: self-healer
+      containers:
+        - name: self-healer
+          # Imagem a ser publicada no ECR (ver GUIA etapa 8 da Fase 4).
+          # Troque ":latest" pelo tag real após o push.
+          image: 940104439733.dkr.ecr.sa-east-1.amazonaws.com/togglemaster/self-healer:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: self-healer
+  namespace: monitoring
+  labels:
+    app: self-healer
+spec:
+  selector:
+    app: self-healer
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP

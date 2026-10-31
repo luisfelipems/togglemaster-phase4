@@ -1,0 +1,146 @@
+---
+# =============================================================================
+# OTel Collector — peça central da telemetria
+# Recebe OTLP (4317 gRPC / 4318 HTTP) dos microsserviços e roteia:
+#   traces  -> New Relic (APM) via OTLP/HTTP
+#   metrics -> Prometheus (expor na :8889 e ser scrapeado pelo kube-prometheus-stack)
+#   logs    -> Loki (se os apps enviarem OTLP logs; opcional)
+# Imagem "contrib" (necessária para exportadores prometheus e loki).
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: monitoring
+data:
+  otelcol.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      memory_limiter:
+        check_interval: 5s
+        limit_mib: 512
+      batch:
+        timeout: 5s
+        send_batch_size: 1024
+    exporters:
+      prometheus:
+        endpoint: 0.0.0.0:8889
+      otlphttp/newrelic:
+        endpoint: https://otlp.nr-data.net
+        headers:
+          api-key: ${env:NEW_RELIC_INGEST_KEY}
+      loki:
+        endpoint: http://loki-stack.monitoring:3100/loki/api/v1/push
+        tls:
+          insecure: true
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlphttp/newrelic]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [prometheus]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [loki]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: monitoring
+  labels:
+    app: otel-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+    spec:
+      containers:
+        - name: collector
+          # Inclui exportadores prometheus e loki. Ajuste o tag para a versão estável atual.
+          image: otel/opentelemetry-collector-contrib:0.119.0
+          imagePullPolicy: IfNotPresent
+          args: ["--config=/etc/otelcol/otelcol.yaml"]
+          ports:
+            - containerPort: 4317
+              name: otlp-grpc
+            - containerPort: 4318
+              name: otlp-http
+            - containerPort: 8889
+              name: metrics
+          env:
+            - name: NEW_RELIC_INGEST_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nr-secret
+                  key: ingest-key
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol
+              readOnly: true
+          resources:
+            limits:
+              cpu: 300m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+      volumes:
+        - name: config
+          configMap:
+            name: otel-collector-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: monitoring
+  labels:
+    app: otel-collector
+spec:
+  selector:
+    app: otel-collector
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      protocol: TCP
+    - name: metrics
+      port: 8889
+      targetPort: 8889
+      protocol: TCP
+  type: ClusterIP
+---
+# Permite o kube-prometheus-stack scrapear as métricas expostas pelo collector.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: otel-collector
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: otel-collector
+  endpoints:
+    - port: metrics
+      interval: 30s
