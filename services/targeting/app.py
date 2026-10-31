@@ -5,7 +5,7 @@ import requests
 import time
 from psycopg2.extras import RealDictCursor, Json
 from psycopg2.pool import SimpleConnectionPool
-from flask import Flask, request, jsonify, g
+from flask import Flask, g, jsonify, request
 from dotenv import load_dotenv
 from functools import wraps
 import logging

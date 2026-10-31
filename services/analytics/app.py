@@ -6,9 +6,8 @@ import uuid
 import time
 import logging
 import boto3
-import time
 from botocore.exceptions import NoCredentialsError, ClientError
-from flask import Flask, jsonify, g, request
+from flask import Flask, g, jsonify, request
 from dotenv import load_dotenv
 from opentelemetry import trace, metrics
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
