@@ -79,7 +79,7 @@ def configure_telemetry(default_service_name: str) -> None:
         export_interval_millis=15000,
     )
     meter_provider = MeterProvider(resource=resource, metric_readers=[reader])
-    metrics.set_meter_provider(meter_provider))
+    metrics.set_meter_provider(meter_provider)
 
 
 configure_telemetry("flag-service")
