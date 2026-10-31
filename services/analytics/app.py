@@ -26,7 +26,6 @@ log = logging.getLogger(__name__)
 load_dotenv()
 
 
-
 def configure_telemetry(default_service_name: str) -> None:
     endpoint = os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
     if not endpoint:

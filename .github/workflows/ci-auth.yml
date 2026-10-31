@@ -35,7 +35,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.25'   # CVE-2025-68121: stdlib fix em 1.25.7
-          cache: true
+          cache: false
 
       - name: Gerar go.sum e baixar deps
         working-directory: services/auth
