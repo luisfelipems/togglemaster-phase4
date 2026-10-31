@@ -58,7 +58,7 @@ spec:
         - name: self-healer
           # Imagem a ser publicada no ECR (ver GUIA etapa 8 da Fase 4).
           # Troque ":latest" pelo tag real após o push.
-          image: 940104439733.dkr.ecr.sa-east-1.amazonaws.com/togglemaster/self-healer:v1.1.0-24f2d7d
+          image: 940104439733.dkr.ecr.sa-east-1.amazonaws.com/togglemaster/self-healer:v1.1.0-2a9f8be
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
