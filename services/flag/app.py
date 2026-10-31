@@ -2,19 +2,23 @@ import os
 import sys
 import psycopg2
 import requests
+import time
 from psycopg2.extras import RealDictCursor
 from psycopg2.pool import SimpleConnectionPool
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
 from dotenv import load_dotenv
 from functools import wraps
 import logging
-from opentelemetry import trace
+from opentelemetry import trace, metrics
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.flask import FlaskInstrumentor
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 
 # Configura o logging
 logging.basicConfig(level=logging.INFO)
@@ -24,6 +28,33 @@ log = logging.getLogger(__name__)
 load_dotenv()
 
 app = Flask(__name__)
+meter = metrics.get_meter(os.getenv("OTEL_SERVICE_NAME", "service"))
+http_server_duration = meter.create_histogram(
+    name="http.server.request.duration",
+    unit="s",
+    description="Duração das requisições HTTP",
+)
+
+
+@app.before_request
+def _otel_metrics_start():
+    g._otel_start = time.perf_counter()
+
+
+@app.after_request
+def _otel_metrics_end(response):
+    start = getattr(g, "_otel_start", None)
+    if start is not None:
+        http_server_duration.record(
+            time.perf_counter() - start,
+            {
+                "http.request.method": request.method,
+                "http.route": request.path,
+                "http.response.status_code": response.status_code,
+                "url.scheme": request.scheme,
+            },
+        )
+    return response
 
 
 def configure_telemetry(default_service_name: str) -> None:
@@ -33,13 +64,22 @@ def configure_telemetry(default_service_name: str) -> None:
     elif endpoint.endswith(":4318") or endpoint.endswith(":4318/"):
         endpoint = endpoint.rstrip("/") + "/v1/traces"
 
-    provider = TracerProvider(
-        resource=Resource.create({
-            "service.name": os.getenv("OTEL_SERVICE_NAME", default_service_name)
-        })
-    )
+    base = endpoint.replace("/v1/traces", "")
+    resource = Resource.create({
+        "service.name": os.getenv("OTEL_SERVICE_NAME", default_service_name)
+    })
+
+    provider = TracerProvider(resource=resource)
     provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint, timeout=5)))
     trace.set_tracer_provider(provider)
+
+    # Métricas — necessárias para o APM do New Relic
+    reader = PeriodicExportingMetricReader(
+        OTLPMetricExporter(endpoint=base + "/v1/metrics", timeout=5),
+        export_interval_millis=15000,
+    )
+    meter_provider = MeterProvider(resource=resource, metric_readers=[reader])
+    metrics.set_meter_provider(meter_provider))
 
 
 configure_telemetry("flag-service")

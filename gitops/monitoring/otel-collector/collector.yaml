@@ -48,7 +48,7 @@ data:
         metrics:
           receivers: [otlp]
           processors: [memory_limiter, batch]
-          exporters: [prometheus]
+          exporters: [prometheus, otlphttp/newrelic]
         logs:
           receivers: [otlp]
           processors: [memory_limiter, batch]
